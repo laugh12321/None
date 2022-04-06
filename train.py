@@ -59,7 +59,7 @@ def train_net(net,
     train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator())
 
     # 3. Create data loaders
-    loader_args = dict(batch_size= batch_size, num_workers=2, pin_memory=True)
+    loader_args = dict(batch_size= batch_size, num_workers=4, pin_memory=True)
     train_loader = DataLoader(train_set, shuffle=True, **loader_args)
     val_loader = DataLoader(val_set, shuffle=False, drop_last=True, **loader_args)
 
@@ -96,7 +96,7 @@ def train_net(net,
             for batch in train_loader:
                 images, true_masks = batch
                 true_masks = torch.argmax(true_masks, dim=1)
-                
+
                 images = images.to(device=device, dtype=torch.float32)
                 true_masks = true_masks.to(device=device, dtype=torch.long)
 
@@ -151,7 +151,7 @@ def train_net(net,
 def get_args():
     parser = argparse.ArgumentParser(description='Train the TransUNet on images and target masks')
     parser.add_argument('--epochs', '-e',  type=int, default=5, help='Number of epochs')
-    parser.add_argument('--batch_size', '-b', dest='batch_size', type=int, default=1, help='Batch size')
+    parser.add_argument('--batch_size', '-b', dest='batch_size', type=int, default=12, help='Batch size')
     parser.add_argument('--learning_rate', '-l', dest='lr', type=float, default=1e-5, help='Learning rate')
     parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0, help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
@@ -161,7 +161,7 @@ def get_args():
     parser.add_argument('--n_skip', type=int, default=3, help='using number of skip-connect, default is num')
     parser.add_argument('--vit_name', type=str, default='R50-ViT-B_16', help='select one vit model')
     parser.add_argument('--vit_patches_size', type=int, default=16, help='vit_patches_size, default is 16')
-    parser.add_argument('--deterministic', action='store_true', default=False, help='whether use deterministic training')
+    parser.add_argument('--deterministic', '-d', action='store_true', default=False, help='whether use deterministic training')
     return parser.parse_args()     
 
 
