@@ -4,52 +4,50 @@ import wandb
 import torch
 import torch.nn as nn
 from torch import optim
-import torch.nn.functional as F
 from torch.cuda.amp import autocast, GradScaler
 # ⚡ PyTorch Lightning
 import pytorch_lightning as pl
-# ⚡ 🤝 🏋️‍♀️
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+import numpy as np
 
-from self_attention_cv.transunet import TransUnet
-
-from utils.dice_score import dice_loss
-from utils.dice_score import multiclass_dice_coeff, dice_coeff
+from networks.vit_seg_modeling import VisionTransformer as ViT_seg
+from utils.dice_score import DiceLoss
 
 
 class TransUnet(pl.LightningModule):
     def __init__(self, 
-        n_channels: int, 
-        n_classes: int, 
-        lr: float = 1e-5, 
-        amp: bool = False):
+        config, 
+        img_size: int = 224, 
+        lr: float = 0.01, 
+        amp: bool = True):
         super(TransUnet, self).__init__()
-        self.save_hyperparameters()
+        # self.save_hyperparameters()
+        self.base_lr = lr
         self.grad_scaler = GradScaler(enabled=amp)
-        self.criterion = nn.CrossEntropyLoss()
-        self.model = TransUnet(in_channels=n_channels, classes=n_classes, 
-                               img_dim=64, vit_blocks=8, vit_dim_linear_mhsa_block=128)
+        self.dice_loss = DiceLoss(config.n_classes)
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.ViT_seg = ViT_seg(config=config, img_size=img_size, num_classes=config.n_classes)
+        self.ViT_seg.load_from(weights=np.load(config.pretrained_path))
         
     @autocast()
     def forward(self, x):
-        return self.model(x)
+        return self.ViT_seg(x)
 
     def configure_optimizers(self):
-        # We could make the optimizer more fancy by adding a scheduler and specifying which parameters do
-        # not require weight_decay but just using AdamW out-of-the-box works fine
-        optimizer = optim.RMSprop(self.parameters(), lr=self.hparams.lr, weight_decay=1e-8, momentum=0.9)
-        lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=2)  # goal: maximize Dice score
-    
-        return [optimizer], [lr_scheduler]
+        optimizer = optim.SGD(self.parameters(), lr=self.base_lr, momentum=0.9, weight_decay=0.0001)
+        return [optimizer]
+
+    @property
+    def automatic_optimization(self) -> bool:
+        return False
     
     def _common_step(self, batch):
         images, true_masks = batch
+        true_masks = torch.argmax(true_masks, dim=1)
         masks_pred = self(images)
-        loss = self.criterion(masks_pred, true_masks) \
-                + dice_loss(F.softmax(masks_pred, dim=1).float(),
-                            F.one_hot(true_masks, 2).permute(0, 3, 1, 2).float(),
-                            multiclass=True)
+        loss_ce = self.ce_loss(masks_pred, true_masks)
+        loss_dice = self.dice_loss(masks_pred, true_masks, softmax=True)
+        loss = 0.5 * loss_ce + 0.5 * loss_dice
+
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -68,30 +66,13 @@ class TransUnet(pl.LightningModule):
         self.logger.experiment.log({
             'learning rate': opt.param_groups[0]['lr'],
         })
+
         return loss
     
     def validation_step(self, batch, batch_idx):
         loss = self._common_step(batch)    
         self.log("val_loss", loss, on_epoch=True)
         return loss
-
-    def validation_epoch_end(self, outputs):
-        sch = self.lr_schedulers()
-        avg_loss = torch.stack([x for x in outputs]).mean()
-        sch.step(self.trainer.callback_metrics["val_avg_loss"])
-        self.log("val_avg_loss", avg_loss, on_epoch=True)
-
-        # dummy_input = torch.zeros(self.hparams["in_dims"], device=self.device)
-        # model_filename = f"model_{str(self.global_step).zfill(5)}.onnx"
-        # torch.onnx.export(self, dummy_input, model_filename, opset_version=11)
-        # wandb.save(model_filename)
-
-        # flattened_logits = torch.flatten(torch.cat(validation_step_outputs))
-        # self.logger.experiment.log(
-        #     {"valid/logits": wandb.Histogram(flattened_logits.to("cpu")),
-        #     "global_step": self.global_step})
-
-        return avg_loss
 
 
 class ImagePredictionLogger(pl.Callback):
@@ -110,6 +91,4 @@ class ImagePredictionLogger(pl.Callback):
             'masks': {
                 'true': wandb.Image(self.val_masks[0].float().to("cpu")),
                 'pred': wandb.Image(torch.softmax(masks_pred, dim=1).argmax(dim=1)[0].float().to("cpu")),
-            },
-            "global_step": trainer.global_step
-            })
+            }})
