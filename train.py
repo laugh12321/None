@@ -95,7 +95,8 @@ def train_net(net,
         with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}', unit='img') as pbar:
             for batch in train_loader:
                 images, true_masks = batch
-
+                true_masks = torch.argmax(true_masks, dim=1)
+                
                 images = images.to(device=device, dtype=torch.float32)
                 true_masks = true_masks.to(device=device, dtype=torch.long)
 
@@ -103,7 +104,7 @@ def train_net(net,
                     masks_pred = net(images)
                     loss = criterion(masks_pred, true_masks) \
                            + dice_loss(F.softmax(masks_pred, dim=1).float(),
-                                       F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
+                                       F.one_hot(true_masks, net.num_classes).permute(0, 3, 1, 2).float(),
                                        multiclass=True)
 
                 optimizer.zero_grad(set_to_none=True)
