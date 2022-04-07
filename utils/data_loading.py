@@ -10,10 +10,8 @@ class BasicDataset(VisionDataset):
     def __init__(self,
                  root: str,
                  mask_suffix: str = '',
-                 transform: Optional[Callable] = None,
-                 transforms: Optional[Callable] = None,
-                 target_transform: Optional[Callable] = None) -> None:
-        super(BasicDataset, self).__init__(root, transforms, transform, target_transform)
+                 transforms: Optional[Callable] = None) -> None:
+        super(BasicDataset, self).__init__(root, transforms)
         self.images_dir = Path(root, 'imgs')
         self.masks_dir = Path(root, 'masks')
         self.mask_suffix = mask_suffix
@@ -40,9 +38,8 @@ class BasicDataset(VisionDataset):
         assert img.size == mask.size, \
             'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
-        if self.transform is not None:
-            img = self.transform(img)
-        if self.target_transform is not None:
-            mask = self.target_transform(mask)
+        if self.transforms is not None:
+            img = self.transforms(img)
+            mask = self.transforms(mask)
 
         return img, mask

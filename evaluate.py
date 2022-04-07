@@ -13,7 +13,7 @@ def evaluate(net, dataloader, device):
     # iterate over the validation set
     for batch in tqdm(dataloader, total=num_val_batches, desc='Validation round', unit='batch', leave=False):
         image, mask_true = batch
-        mask_true = torch.argmax(mask_true, dim=1)
+        mask_true = torch.squeeze(mask_true, dim=1)
 
         # move images and labels to correct device and type
         image = image.to(device=device, dtype=torch.float32)

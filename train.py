@@ -37,21 +37,14 @@ def train_net(net,
     # 1. Defining transforms to be applied on the data
     transform = transforms.Compose([
         transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    ])
-    target_transform = transforms.Compose([
-        transforms.Resize((img_size, img_size)),
         transforms.ToTensor()
     ])
 
     # 2. Create dataset
     try:
-        dataset = BasicDataset(root=dir_root,  mask_suffix='_mask', 
-                               transform=transform, target_transform=target_transform)
+        dataset = BasicDataset(root=dir_root,  mask_suffix='_mask', transforms=transform)
     except (AssertionError, RuntimeError):
-        dataset = BasicDataset(root=dir_root, transform=transform, 
-                               target_transform=target_transform)
+        dataset = BasicDataset(root=dir_root, transforms=transform)
 
     # 2. Split into train / validation partitions
     n_val = int(len(dataset) * val_percent)
@@ -95,7 +88,7 @@ def train_net(net,
         with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}', unit='img') as pbar:
             for batch in train_loader:
                 images, true_masks = batch
-                true_masks = torch.argmax(true_masks, dim=1)
+                true_masks = torch.squeeze(true_masks, dim=1)
 
                 images = images.to(device=device, dtype=torch.float32)
                 true_masks = true_masks.to(device=device, dtype=torch.long)
