@@ -11,13 +11,12 @@ import torch
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
-from torchvision import transforms
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader, random_split
 
 from networks.vit_seg_modeling import VisionTransformer as ViT_seg
 from networks.vit_seg_modeling import CONFIGS as CONFIGS_ViT_seg
-from utils.data_loading import BasicDataset
+from utils.data_loading import BasicDataset, CarvanaDataset
 from utils.dice_score import dice_loss
 from evaluate import evaluate
 
@@ -28,23 +27,17 @@ dir_checkpoint = Path('./checkpoints/')
 def train_net(net,
               device,
               epochs: int = 5,
-              batch_size: int = 1,
-              learning_rate: float = 1e-5,
-              val_percent: float = 0.1,
+              batch_size: int = 12,
+              learning_rate: float = 0.001,
+              val_percent: float = 0.3,
               save_checkpoint: bool = True,
               img_size: int = 224,
               amp: bool = False):
-    # 1. Defining transforms to be applied on the data
-    transform = transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor()
-    ])
-
-    # 2. Create dataset
+    # 1. Create dataset
     try:
-        dataset = BasicDataset(root=dir_root,  mask_suffix='_mask', transforms=transform)
+        dataset = CarvanaDataset(dir_root, img_size)
     except (AssertionError, RuntimeError):
-        dataset = BasicDataset(root=dir_root, transforms=transform)
+        dataset = BasicDataset(dir_root, img_size)
 
     # 2. Split into train / validation partitions
     n_val = int(len(dataset) * val_percent)
@@ -87,8 +80,7 @@ def train_net(net,
         epoch_loss = 0
         with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}', unit='img') as pbar:
             for batch in train_loader:
-                images, true_masks = batch
-                true_masks = torch.squeeze(true_masks, dim=1)
+                images, true_masks = batch['image'], batch['mask']
 
                 images = images.to(device=device, dtype=torch.float32)
                 true_masks = true_masks.to(device=device, dtype=torch.long)
@@ -96,15 +88,15 @@ def train_net(net,
                 with torch.cuda.amp.autocast(enabled=amp):
                     masks_pred = net(images)
                     loss = criterion(masks_pred, true_masks) \
-                           + dice_loss(F.softmax(masks_pred, dim=1).float(),
-                                       F.one_hot(true_masks, net.num_classes).permute(0, 3, 1, 2).float(),
-                                       multiclass=True)
+                            + dice_loss(F.softmax(masks_pred, dim=1).float(),
+                                        F.one_hot(true_masks, net.num_classes).permute(0, 3, 1, 2).float(),
+                                        multiclass=True)
 
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
                 grad_scaler.step(optimizer)
                 grad_scaler.update()
-    
+
                 pbar.update(images.shape[0])
                 global_step += 1
                 epoch_loss += loss.item()
@@ -137,16 +129,23 @@ def train_net(net,
 
         if save_checkpoint:
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
-            torch.save(net.state_dict(), str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch + 1)))
-            logging.info(f'Checkpoint {epoch + 1} saved!')
+
+            save_interval = 5  # int(epochs/5)
+            if epoch > int(epochs / 2) and (epoch + 1) % save_interval == 0:
+                torch.save(net.state_dict(), str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch + 1)))
+                logging.info(f'Checkpoint {epoch + 1} saved!')
+
+            if epoch >= epochs - 1:
+                torch.save(net.state_dict(), str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch + 1)))
+                logging.info(f'Checkpoint {epoch + 1} saved!')
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='Train the TransUNet on images and target masks')
     parser.add_argument('--epochs', '-e',  type=int, default=5, help='Number of epochs')
     parser.add_argument('--batch_size', '-b', dest='batch_size', type=int, default=12, help='Batch size')
-    parser.add_argument('--learning_rate', '-l', dest='lr', type=float, default=1e-5, help='Learning rate')
-    parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0, help='Percent of the data that is used as validation (0-100)')
+    parser.add_argument('--learning_rate', '-l', dest='lr', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--validation', '-v', dest='val', type=float, default=30.0, help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
     parser.add_argument('--num_classes', type=int, default=2, help='output channel of network')
     parser.add_argument('--img_size', type=int, default=224, help='input patch size of network input')
