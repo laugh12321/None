@@ -68,7 +68,9 @@ def train_net(net,
     ''')
 
     # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
-    optimizer = optim.RMSprop(net.parameters(), lr=learning_rate, weight_decay=1e-8, momentum=0.9)
+    params = [p for p in net.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(params, lr=learning_rate, momentum=0.9, weight_decay=0.0001)
+    # optimizer = optim.RMSprop(net.parameters(), lr=learning_rate, weight_decay=1e-8, momentum=0.9)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=2)  # goal: maximize Dice score
     grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
     criterion = nn.CrossEntropyLoss()
@@ -143,8 +145,8 @@ def train_net(net,
 def get_args():
     parser = argparse.ArgumentParser(description='Train the TransUNet on images and target masks')
     parser.add_argument('--epochs', '-e',  type=int, default=5, help='Number of epochs')
-    parser.add_argument('--batch_size', '-b', dest='batch_size', type=int, default=12, help='Batch size')
-    parser.add_argument('--learning_rate', '-l', dest='lr', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--batch_size', '-b', dest='batch_size', type=int, default=24, help='Batch size')
+    parser.add_argument('--learning_rate', '-l', dest='lr', type=float, default=0.005, help='Learning rate')
     parser.add_argument('--validation', '-v', dest='val', type=float, default=30.0, help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
     parser.add_argument('--num_classes', type=int, default=2, help='output channel of network')
