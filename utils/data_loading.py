@@ -1,9 +1,15 @@
-import logging
-import numpy as np
-from PIL import Image
-from os import listdir
+from PIL import Image, ImageDraw
+
 from os.path import splitext
+from os import listdir
+import os
+
 from pathlib import Path
+from tqdm import tqdm
+import numpy as np
+import logging
+import base64
+import json
 
 import torch
 from torch.utils.data import Dataset
@@ -74,3 +80,50 @@ class BasicDataset(Dataset):
 class CarvanaDataset(BasicDataset):
     def __init__(self, root_dir: str, size: int = 224):
         super().__init__(root_dir, size, mask_suffix='_mask')
+
+
+def base64_to_image(base64_code, save_dir):
+    """
+    将base64编码写入为图片
+    base64_code: base64编码后数据
+    save_dir: 图片保存位置
+    """
+    # base64解码
+    img_data = base64.b64decode(base64_code)
+    img_file = open(save_dir, 'wb')
+    img_file.write(img_data)
+    img_file.close()
+
+
+def json_to_mask(save_dir, json_dir):
+    """
+    将json中的信息转换为可训练的标准类型
+    """
+    images_dir = Path(save_dir, 'imgs')
+    masks_dir = Path(save_dir, 'masks')
+
+    ids = [splitext(file)[0] for file in listdir(json_dir) if file.endswith('.json')]
+    if not ids:
+        print(f'No input file found in {json_dir}, make sure you put your json file there')
+
+    if not os.path.exists(images_dir):
+        os.makedirs(images_dir)
+    if not os.path.exists(masks_dir):
+        os.makedirs(masks_dir)
+
+    for id in tqdm(ids):
+        mask_data = json.load(open(Path(json_dir, id + '.json'), 'r'))
+
+        # 生成 image
+        base64_to_image(base64_code=mask_data["imageData"], save_dir=Path(images_dir, id + '.jpg'))
+
+        # 生成 mask
+        polygons = mask_data["shapes"]
+        h, w = mask_data["imageHeight"], mask_data["imageWidth"]
+        mask_img = Image.new('L', (w, h), 0)   
+        for polygon in polygons:
+            points = [tuple(l) for l in polygon["points"]]
+            ImageDraw.Draw(mask_img).polygon(points, outline=255, fill=255)
+        mask_img.save((Path(masks_dir, id + '_mask.gif')))
+
+    print("Transform Finished!")
