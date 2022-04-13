@@ -1,14 +1,12 @@
-from PIL import Image, ImageDraw
-
-from os.path import splitext
-from os import listdir
-import os
-
+from os.path import splitext, exists
+from os import listdir, makedirs
+from labelme import utils
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
 import logging
 import base64
+import imgviz
 import json
 
 import torch
@@ -82,48 +80,78 @@ class CarvanaDataset(BasicDataset):
         super().__init__(root_dir, size, mask_suffix='_mask')
 
 
-def base64_to_image(base64_code, save_dir):
-    """
-    将base64编码写入为图片
-    base64_code: base64编码后数据
-    save_dir: 图片保存位置
-    """
-    # base64解码
-    img_data = base64.b64decode(base64_code)
-    img_file = open(save_dir, 'wb')
-    img_file.write(img_data)
-    img_file.close()
-
-
-def json_to_mask(save_dir, json_dir):
+def json_to_dataset(save_dir, json_dir, noviz=True):
     """
     将json中的信息转换为可训练的标准类型
+    
+    save_dir: path, 数据集保存位置
+    json_dir: path, json存放位置
+    noviz: bool, 是否可视化
     """
-    images_dir = Path(save_dir, 'imgs')
-    masks_dir = Path(save_dir, 'masks')
-
     ids = [splitext(file)[0] for file in listdir(json_dir) if file.endswith('.json')]
     if not ids:
         print(f'No input file found in {json_dir}, make sure you put your json file there')
 
-    if not os.path.exists(images_dir):
-        os.makedirs(images_dir)
-    if not os.path.exists(masks_dir):
-        os.makedirs(masks_dir)
+    images_dir = Path(save_dir, 'imgs')
+    masks_dir = Path(save_dir, 'masks')
+    
+    if not exists(images_dir):
+        makedirs(images_dir)
+    if not exists(masks_dir):
+        makedirs(masks_dir)
+        
+    if not noviz:
+        viz_dir = Path(save_dir, 'viz')
+        if not exists(viz_dir):
+            makedirs(viz_dir)
 
+    class_id = 1
+    class_names = ["_background_"]
+    class_name_to_id = {"_background_": 0}
     for id in tqdm(ids):
-        mask_data = json.load(open(Path(json_dir, id + '.json'), 'r'))
-
-        # 生成 image
-        base64_to_image(base64_code=mask_data["imageData"], save_dir=Path(images_dir, id + '.jpg'))
-
+        json_data = json.load(open(Path(json_dir, id + '.json'), encoding='utf-8'))
+        
+        for shape in json_data['shapes']:
+            class_name = shape['label']
+            if class_name not in class_names:
+                class_names.append(class_name)
+            if class_name not in class_name_to_id.keys():
+                class_name_to_id[class_name] = class_id
+                class_id += 1
+            
+        # 获取图像数据
+        if json_data['imageData']:
+            image_data = json_data['imageData']
+        else:
+            image_path = Path(json_dir, json_data['imagePath'])
+            with open(image_path, 'rb') as f:
+                image_data = base64.b64encode(f.read()).decode('utf-8')
+        img = utils.img_b64_to_arr(image_data)
+        imgviz.io.imsave(Path(images_dir, id + '.jpg'), img)
+        
         # 生成 mask
-        polygons = mask_data["shapes"]
-        h, w = mask_data["imageHeight"], mask_data["imageWidth"]
-        mask_img = Image.new('L', (w, h), 0)   
-        for polygon in polygons:
-            points = [tuple(l) for l in polygon["points"]]
-            ImageDraw.Draw(mask_img).polygon(points, outline=255, fill=255)
-        mask_img.save((Path(masks_dir, id + '_mask.gif')))
+        lbl, _ = utils.shapes_to_label(
+            img_shape=img.shape,
+            shapes=json_data['shapes'],
+            label_name_to_value=class_name_to_id,
+        )
+        utils.lblsave(Path(masks_dir, id + '_mask.png'), lbl)
+        
+        # 可视化
+        if not noviz:
+            viz = imgviz.label2rgb(
+                label=lbl,
+                image=imgviz.rgb2gray(img),
+                # image=img,
+                label_names=class_names,
+                font_size=15,
+                loc="rb",
+            )
+            imgviz.io.imsave(Path(viz_dir, id + '_viz.jpg'), viz)
 
-    print("Transform Finished!")
+    class_names = tuple(class_names)
+    out_class_names_file = Path(save_dir, "class_names.txt")
+    with open(out_class_names_file, "w") as f:
+        f.writelines("\n".join(class_names))
+    print("Saved class_names:", out_class_names_file)
+    print("Finished!")
