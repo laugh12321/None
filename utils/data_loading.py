@@ -3,6 +3,7 @@ from os import listdir, makedirs
 from labelme import utils
 from pathlib import Path
 from tqdm import tqdm
+from PIL import Image
 import numpy as np
 import logging
 import base64

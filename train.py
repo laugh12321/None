@@ -57,7 +57,9 @@ def train_net(net,
 
     logging.info(f'''Starting training:
         Epochs:          {epochs}
+        Image size:      {img_size}
         Batch size:      {batch_size}
+        classes num:     {net.num_classes}
         Learning rate:   {learning_rate}
         Training size:   {n_train}
         Validation size: {n_val}
@@ -149,7 +151,7 @@ def get_args():
     parser.add_argument('--learning_rate', '-l', dest='lr', type=float, default=0.005, help='Learning rate')
     parser.add_argument('--validation', '-v', dest='val', type=float, default=30.0, help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
-    parser.add_argument('--num_classes', type=int, default=2, help='output channel of network')
+    parser.add_argument('--num_classes', '-c', type=int, default=2, help='output channel of network')
     parser.add_argument('--img_size', type=int, default=224, help='input patch size of network input')
     parser.add_argument('--seed', type=int, default=1234, help='random seed')
     parser.add_argument('--n_skip', type=int, default=3, help='using number of skip-connect, default is num')
