@@ -1,3 +1,4 @@
+import os
 import cv2
 import torch
 import argparse
@@ -22,8 +23,8 @@ def get_args():
 def model_load(
     model_path: str, 
     num_classes: int,  
-    img_size: int = 224,
     n_skip: int = 3,
+    img_size: int = 224,
     vit_name: str = 'R50-ViT-B_16',
     vit_patches_size: int = 16):
 
@@ -37,7 +38,7 @@ def model_load(
 
     # 模型加载
     net = ViT_seg(config_vit, img_size=img_size, num_classes=config_vit.n_classes).to(device=device)
-    net.load_state_dict(torch.load(model_path, map_location=device))
+    net.load_state_dict(torch.load(model_path, map_location=device), strict=False) # 不报错 strict=True
 
     return net
 
@@ -51,7 +52,12 @@ def inference_single(image, net):
     return prediction
 
 
-def model_detect(net, path: str, num_classes: int, img_size: int = 224):
+def model_detect(
+    net, 
+    path: str, 
+    noviz: bool,
+    num_classes: int, 
+    img_size: int = 224):
 
     image = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -62,14 +68,12 @@ def model_detect(net, path: str, num_classes: int, img_size: int = 224):
     h, w, _ = image.shape
     picture_cover = cv2.resize(picture, (w, h), interpolation=cv2.INTER_NEAREST).astype(np.uint8)
 
-    # image = cv2.imread(path)
-    # for i in range(1, num_class+1):
-    #     image[:, :, 0][picture_cover == i] = int(i/num_class * 255)
-    # if num_class == 4:
-    #     name = 'crack'
-    # else:
-    #     name = 'irrsign'
-    # cv2.imwrite('./prediction/unet' + name + '.jpg', image)
+    # 可视化
+    if not noviz:
+        image = cv2.imread(path)
+        for i in range(1, num_classes+1):
+            image[:, :, 0][picture_cover == i] = int(i/num_classes * 255)
+        cv2.imwrite(os.path.splitext(path)[0] + '_detect.jpg', image)
 
     labels = list()
     for i in np.unique(picture_cover):  # 51
